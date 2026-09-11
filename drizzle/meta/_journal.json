@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789088829901,
+      "tag": "0000_complete_kang",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789089197357,
+      "tag": "0001_icy_swarm",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789090054322,
+      "tag": "0002_marvelous_microbe",
+      "breakpoints": true
+    }
+  ]
+}
