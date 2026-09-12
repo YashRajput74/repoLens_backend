@@ -6,4 +6,7 @@ export const env = {
     DATABASE_URL:
         process.env.DATABASE_URL ??
         "postgresql://postgres:postgre@localhost:5432/repolens",
+
+    GROQ_API_KEY: process.env.GROQ_API_KEY ?? "",
+    GROQ_MODEL: process.env.GROQ_MODEL ?? "openai/gpt-oss-120b",
 };
