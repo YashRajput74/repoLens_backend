@@ -15,6 +15,7 @@ import {
     selectSecurityFiles,
     analyzeRepository,
 } from "../../services/groq.service.js";
+import type { SecurityFinding } from "../../scanners/types.js";
 
 export async function createScan(projectId: string) {
     const [project] = await db
@@ -100,36 +101,61 @@ async function runScan(scanId: string, repositoryUrl: string) {
         console.log("========================================");
 
         // 5. Analyze each batch separately
-        const aiAnalyses: string[] = [];
+        const aiFindings: SecurityFinding[] = [];
 
-        for (let i = 0; i < repositoryContextBatches.length; i++) {
-            const batch = repositoryContextBatches[i];
+        for (
+            let i = 0;
+            i < repositoryContextBatches.length;
+            i++
+        ) {
+            const batch =
+                repositoryContextBatches[i];
 
             console.log(
                 `===== ANALYZING BATCH ${i + 1}/${repositoryContextBatches.length} =====`,
             );
 
-            const analysis = await analyzeRepository(batch);
+            const findingsFromBatch =
+                await analyzeRepository(batch);
 
-            aiAnalyses.push(analysis);
-
-            console.log(analysis);
+            aiFindings.push(
+                ...findingsFromBatch,
+            );
 
             console.log(
-                `===== END BATCH ${i + 1} =====`,
+                `Batch ${i + 1} findings:`,
+                findingsFromBatch,
             );
         }
 
-        // 6. Combine all AI analysis results
-        const aiAnalysis = aiAnalyses.join(
-            "\n\n===== NEXT ANALYSIS BATCH =====\n\n",
+        console.log(
+            "===== COMPLETE AI FINDINGS =====",
         );
 
-        console.log("===== COMPLETE GROQ SECURITY ANALYSIS =====");
-        console.log(aiAnalysis);
-        console.log("============================================");
+        console.log(aiFindings);
 
-        // 6. Existing secret scanner
+        // 6. Save AI findings
+        if (aiFindings.length > 0) {
+            await db.insert(findings).values(
+                aiFindings.map((finding) => ({
+                    scanId,
+                    category: finding.category,
+                    severity: finding.severity,
+                    title: finding.title,
+                    description: finding.description,
+                    filePath: finding.filePath,
+                    lineNumber: finding.lineNumber,
+                    evidence: finding.evidence,
+                    remediation: finding.remediation,
+                    ruleId: finding.ruleId,
+                    cwe: finding.cwe,
+                    cve: finding.cve,
+                    confidence: finding.confidence,
+                })),
+            );
+        }
+
+        // 7. Existing secret scanner
         const secretFindings =
             await secretScanner.scan(repositoryPath);
 
@@ -152,8 +178,6 @@ async function runScan(scanId: string, repositoryUrl: string) {
                 })),
             );
         }
-
-        // 7. Mark scan completed
         await db
             .update(scans)
             .set({
