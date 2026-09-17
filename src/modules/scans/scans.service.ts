@@ -10,7 +10,10 @@ import {
     buildRepositoryStructure,
     buildSelectedFileContextBatches,
 } from "../../services/repository-context.service.js";
-
+import {
+    buildDependencyGraph,
+    expandSecurityContext,
+} from "../../services/dependency-graph.service.js";
 import {
     selectSecurityFiles,
     analyzeRepository,
@@ -65,30 +68,64 @@ async function runScan(scanId: string, repositoryUrl: string) {
         // 1. Clone repository
         repositoryPath = await cloneRepository(repositoryUrl);
 
+        // TEST: Build dependency graph
+        const dependencyGraph =
+            await buildDependencyGraph(repositoryPath);
+
+        /* console.log(
+            "===== DEPENDENCY GRAPH =====",
+        ); */
+
+        console.log(
+            JSON.stringify(
+                dependencyGraph,
+                null,
+                2,
+            ),
+        );
+
+        /* console.log(
+            "============================",
+        ); */
+
         // 2. Get repository structure
         const repositoryStructure =
             await buildRepositoryStructure(repositoryPath);
 
-        console.log("===== REPOSITORY STRUCTURE =====");
+        /* console.log("===== REPOSITORY STRUCTURE =====");
         console.log(repositoryStructure);
         console.log("================================");
-
+ */
         // 3. Ask Groq which files are security-relevant
         const selectedFiles =
             await selectSecurityFiles(repositoryStructure);
 
-        console.log("===== AI SELECTED FILES =====");
+        /* console.log("===== AI SELECTED FILES =====");
         console.log(selectedFiles);
         console.log("=============================");
+ */
+        const securityContextFiles =
+            expandSecurityContext(
+                selectedFiles,
+                dependencyGraph,
+            );
 
+      /*   console.log(
+            "===== EXPANDED SECURITY CONTEXT =====",
+        );
+
+        console.log(securityContextFiles);
+
+        console.log("=====================================");
+ */
         // 4. Build token-aware batches from selected files
         const repositoryContextBatches =
             await buildSelectedFileContextBatches(
                 repositoryPath,
-                selectedFiles,
+                securityContextFiles,
             );
 
-        console.log(
+       /*  console.log(
             `===== AI CONTEXT BATCHES: ${repositoryContextBatches.length} =====`,
         );
 
@@ -99,7 +136,7 @@ async function runScan(scanId: string, repositoryUrl: string) {
         });
 
         console.log("========================================");
-
+ */
         // 5. Analyze each batch separately
         const aiFindings: SecurityFinding[] = [];
 
@@ -111,9 +148,9 @@ async function runScan(scanId: string, repositoryUrl: string) {
             const batch =
                 repositoryContextBatches[i];
 
-            console.log(
+          /*   console.log(
                 `===== ANALYZING BATCH ${i + 1}/${repositoryContextBatches.length} =====`,
-            );
+            ); */
 
             const findingsFromBatch =
                 await analyzeRepository(batch);
@@ -122,18 +159,18 @@ async function runScan(scanId: string, repositoryUrl: string) {
                 ...findingsFromBatch,
             );
 
-            console.log(
+           /*  console.log(
                 `Batch ${i + 1} findings:`,
                 findingsFromBatch,
-            );
+            ); */
         }
 
-        console.log(
+      /*   console.log(
             "===== COMPLETE AI FINDINGS =====",
         );
 
         console.log(aiFindings);
-
+ */
         // 6. Save AI findings
         if (aiFindings.length > 0) {
             await db.insert(findings).values(
