@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, resolve, extname, dirname } from "node:path";
 import { encodingForModel } from "js-tiktoken";
+import { hashFileContent } from "./file-cache.service.js";
 
 const IGNORED_DIRECTORIES = new Set([
     ".git",
@@ -109,13 +110,14 @@ function isSafePath(
     );
 }
 
-interface FileContext {
+export interface FileContext {
     path: string;
     content: string;
     tokens: number;
+    hash: string;
 }
 
-async function loadSelectedFiles(
+export async function loadSelectedFiles(
     repositoryPath: string,
     selectedFiles: string[],
 ): Promise<FileContext[]> {
@@ -143,11 +145,13 @@ async function loadSelectedFiles(
                 `===== FILE: ${file} =====\n${content}`;
 
             const tokens = estimateTokens(formattedContent);
+            const hash = hashFileContent(content);
 
             files.push({
                 path: file,
                 content: formattedContent,
                 tokens,
+                hash,
             });
         } catch {
             console.log(
@@ -167,15 +171,20 @@ function getDirectory(filePath: string): string {
         : directory;
 }
 
-export async function buildSelectedFileContextBatches(
-    repositoryPath: string,
-    selectedFiles: string[],
-): Promise<string[]> {
-    const files = await loadSelectedFiles(
-        repositoryPath,
-        selectedFiles,
-    );
+export function normalizeFilePath(filePath: string): string {
+    return filePath
+        .replace(/\\/g, "/")
+        .replace(/^\.\//, "")
+        .replace(/^\//, "")
+        .trim();
+}
 
+export interface FileBatch {
+    content: string;
+    files: FileContext[];
+}
+
+export function buildFileBatches(files: FileContext[]): FileBatch[] {
     // First group files by directory/module.
     const groups = new Map<string, FileContext[]>();
 
@@ -189,7 +198,7 @@ export async function buildSelectedFileContextBatches(
         groups.get(directory)!.push(file);
     }
 
-    const batches: string[] = [];
+    const batches: FileBatch[] = [];
     let currentBatch: FileContext[] = [];
     let currentTokens = 0;
 
@@ -198,11 +207,12 @@ export async function buildSelectedFileContextBatches(
             return;
         }
 
-        batches.push(
-            currentBatch
+        batches.push({
+            content: currentBatch
                 .map((file) => file.content)
                 .join("\n\n"),
-        );
+            files: [...currentBatch],
+        });
 
         currentBatch = [];
         currentTokens = 0;
@@ -249,4 +259,16 @@ export async function buildSelectedFileContextBatches(
     flushBatch();
 
     return batches;
+}
+
+export async function buildSelectedFileContextBatches(
+    repositoryPath: string,
+    selectedFiles: string[],
+): Promise<string[]> {
+    const files = await loadSelectedFiles(
+        repositoryPath,
+        selectedFiles,
+    );
+
+    return buildFileBatches(files).map((batch) => batch.content);
 }

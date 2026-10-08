@@ -77,3 +77,33 @@ export const findings = pgTable("findings", {
 
     createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export const fileAnalysisCache = pgTable(
+    "file_analysis_cache",
+    {
+        id: uuid("id")
+            .defaultRandom()
+            .primaryKey(),
+
+        repositoryUrl: varchar(
+            "repository_url",
+            { length: 500 },
+        ).notNull(),
+
+        filePath: varchar(
+            "file_path",
+            { length: 1000 },
+        ).notNull(),
+
+        contentHash: varchar(
+            "content_hash",
+            { length: 64 },
+        ).notNull(),
+
+        analysis: text("analysis").notNull(),
+
+        createdAt: timestamp("created_at")
+            .defaultNow()
+            .notNull(),
+    },
+);

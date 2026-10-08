@@ -8,8 +8,15 @@ import {
 import { secretScanner } from "../../scanners/secrets/secrets.scanner.js";
 import {
     buildRepositoryStructure,
-    buildSelectedFileContextBatches,
+    loadSelectedFiles,
+    buildFileBatches,
+    normalizeFilePath,
+    type FileContext,
 } from "../../services/repository-context.service.js";
+import {
+    getCachedFindings,
+    saveCachedFindings,
+} from "../../services/file-cache.service.js";
 import {
     buildDependencyGraph,
     expandSecurityContext,
@@ -72,10 +79,6 @@ async function runScan(scanId: string, repositoryUrl: string) {
         const dependencyGraph =
             await buildDependencyGraph(repositoryPath);
 
-        /* console.log(
-            "===== DEPENDENCY GRAPH =====",
-        ); */
-
         console.log(
             JSON.stringify(
                 dependencyGraph,
@@ -84,93 +87,90 @@ async function runScan(scanId: string, repositoryUrl: string) {
             ),
         );
 
-        /* console.log(
-            "============================",
-        ); */
-
         // 2. Get repository structure
         const repositoryStructure =
             await buildRepositoryStructure(repositoryPath);
 
-        /* console.log("===== REPOSITORY STRUCTURE =====");
-        console.log(repositoryStructure);
-        console.log("================================");
- */
         // 3. Ask Groq which files are security-relevant
         const selectedFiles =
             await selectSecurityFiles(repositoryStructure);
 
-        /* console.log("===== AI SELECTED FILES =====");
-        console.log(selectedFiles);
-        console.log("=============================");
- */
         const securityContextFiles =
             expandSecurityContext(
                 selectedFiles,
                 dependencyGraph,
             );
 
-      /*   console.log(
-            "===== EXPANDED SECURITY CONTEXT =====",
+        // 4. Load files and check cache
+        const allFiles = await loadSelectedFiles(
+            repositoryPath,
+            securityContextFiles,
         );
 
-        console.log(securityContextFiles);
-
-        console.log("=====================================");
- */
-        // 4. Build token-aware batches from selected files
-        const repositoryContextBatches =
-            await buildSelectedFileContextBatches(
-                repositoryPath,
-                securityContextFiles,
-            );
-
-       /*  console.log(
-            `===== AI CONTEXT BATCHES: ${repositoryContextBatches.length} =====`,
-        );
-
-        repositoryContextBatches.forEach((batch, index) => {
-            console.log(
-                `Batch ${index + 1}: ${batch.length} characters`,
-            );
-        });
-
-        console.log("========================================");
- */
-        // 5. Analyze each batch separately
         const aiFindings: SecurityFinding[] = [];
+        const uncachedFiles: FileContext[] = [];
 
-        for (
-            let i = 0;
-            i < repositoryContextBatches.length;
-            i++
-        ) {
-            const batch =
-                repositoryContextBatches[i];
-
-          /*   console.log(
-                `===== ANALYZING BATCH ${i + 1}/${repositoryContextBatches.length} =====`,
-            ); */
-
-            const findingsFromBatch =
-                await analyzeRepository(batch);
-
-            aiFindings.push(
-                ...findingsFromBatch,
+        for (const file of allFiles) {
+            const cachedFindings = await getCachedFindings(
+                repositoryUrl,
+                file.path,
+                file.hash,
             );
 
-           /*  console.log(
-                `Batch ${i + 1} findings:`,
-                findingsFromBatch,
-            ); */
+            if (cachedFindings !== null) {
+                console.log(
+                    `[Cache HIT] ${file.path} (${file.hash.slice(0, 8)}) - ${cachedFindings.length} finding(s)`,
+                );
+                aiFindings.push(...cachedFindings);
+            } else {
+                console.log(
+                    `[Cache MISS] ${file.path} (${file.hash.slice(0, 8)})`,
+                );
+                uncachedFiles.push(file);
+            }
         }
 
-      /*   console.log(
-            "===== COMPLETE AI FINDINGS =====",
-        );
+        // 5. Analyze uncached files in batches
+        if (uncachedFiles.length > 0) {
+            const batches = buildFileBatches(uncachedFiles);
+            console.log(
+                `Analyzing ${uncachedFiles.length} uncached file(s) across ${batches.length} batch(es)...`,
+            );
 
-        console.log(aiFindings);
- */
+            for (let i = 0; i < batches.length; i++) {
+                const batch = batches[i];
+                console.log(
+                    `Analyzing batch ${i + 1}/${batches.length} (${batch.files.length} file(s))...`,
+                );
+
+                const findingsFromBatch =
+                    await analyzeRepository(batch.content);
+
+                aiFindings.push(...findingsFromBatch);
+
+                // Cache findings for each file in this batch
+                for (const file of batch.files) {
+                    const normalizedTarget =
+                        normalizeFilePath(file.path).toLowerCase();
+                    const fileFindings = findingsFromBatch.filter(
+                        (f) =>
+                            normalizeFilePath(f.filePath ?? "").toLowerCase() ===
+                            normalizedTarget,
+                    );
+
+                    await saveCachedFindings(
+                        repositoryUrl,
+                        file.path,
+                        file.hash,
+                        fileFindings,
+                    );
+                }
+            }
+        } else {
+            console.log(
+                "All security-relevant files found in cache! Skipping AI calls.",
+            );
+        }
         // 6. Save AI findings
         if (aiFindings.length > 0) {
             await db.insert(findings).values(
